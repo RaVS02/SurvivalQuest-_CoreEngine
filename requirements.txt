@@ -1,0 +1,9 @@
+pyside6
+pillow
+pydantic
+pytest
+black
+isort
+flake8
+mypy
+rich
