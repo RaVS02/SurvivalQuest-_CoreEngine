@@ -1,15 +1,15 @@
 # Mini Gierka w Ramach Nauki Biblioteki 
 ## Wykorzystane Środowisko
 
-## Opis
-Krótki opis gry: mechanika, cel, klimat.
+## Opis projektu
+Projekt własnego silnika minigier 2D tworzony od zera w Pythonie przy wykorzystaniu frameworka PySide6 (QGraphicsView, QGraphicsScene). Celem projektu jest nauka mechanizmów gamedevu na poziomie "low-level logic" bez użycia gotowych silników typu Unity.
 
-## Funkcje
-- Sterowanie postacią
-- Kolizje
-- Przeciwnicy
-- Punkty / HP
-- Animacje
+## Zaimplementowane Mechaniki (Silnik)
+* **Game Loop i Delta Time:** Ruch niezależny od klatek na sekundę (Frame-Rate Independent) obliczany na podstawie czasu z `QElapsedTimer`.
+* **Ruch postaci (Top-Down):** Normalizacja wektorów ruchu po skosie (matematyka pierwiastków) zapobiegająca *strafe-runningowi*.
+* **System Kafelkowy (Tilemap):** Proceduralne generowanie mapy 2D oparte na wydajnych wielowymiarowych tablicach z biblioteki `NumPy`.
+* **System Kolizji (AABB):** Autorski system detekcji ścian poprzez rzutowanie współrzędnych ekranowych na indeksy tablicy (AABB). Posiada wsparcie dla tzw. *Leading Edge* oraz definiowania logicznych Hitboxów o mniejszych rozmiarach niż Sprite graficzny.
+* **Kamera (Viewport):** Płynne śledzenie gracza (`centerOn`) w środowisku większym niż ekran aplikacji.
 
 ## Struktura Projektu
 ```
@@ -36,43 +36,16 @@ my_game/
 ```
 
 ## Plan rozwoju
-- [ ] System kolizji
-- [ ] Animacje sprite’ów
-- [ ] Menu startowe
-- [ ] Zapis stanu gry
-- [ ] Dźwięki
+- [x] Podstawy pętli gry i ruchu (Delta Time)
+- [x] Renderowanie Sprite'ów i mapy kafelkowej
+- [x] System kolizji (Hitboxy) i kamera
+- [ ] Złożony system mapy i minimapy
+- [ ] Sortowanie głębi (Z-ordering / Y-Sort) dla efektu 2.5D
+- [ ] Animacje sprite’ów (Spritesheets)
+- [ ] Główne Menu / UI / Ekwipunek
+- [ ] System walki i AI przeciwników
+- [ ] Zapis / Odczyt stanu gry
 
-## Mechaniki Gry
-
-### 🔹 1. **Ruch gracza**
-- prędkość  
-- kierunek  
-- ograniczenia mapy  
-
-### 🔹 2. **Kolizje**
-- z mapą  
-- z przeciwnikami  
-- z obiektami  
-
-### 🔹 3. **AI przeciwników**
-- patrol  
-- pogoń  
-- atak  
-
-### 🔹 4. **Fizyka**
-- grawitacja  
-- tarcie  
-- skoki  
-
-### 🔹 5. **UI**
-- HUD  
-- HP  
-- punkty  
-
-### 🔹 6. **Loop gry**
-- update  
-- render  
-- input 
 
 ## Instalacja
 ```bash

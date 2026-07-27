@@ -14,6 +14,15 @@ class GameView(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.map_size=64
         self.start_pos=500
+        self.sprite_size = 64
+        self.speed = 200 
+        self.angle_speed=180
+        # Ile pikseli odcinamy z lewej i prawej strony (żeby łatwiej wchodzić w korytarze)
+        self.hitbox_margin_x = 18 
+        # Ile pikseli odcinamy z góry (głowa ignoruje ściany)
+        self.hitbox_margin_top = 40 
+        # Ile pikseli odcinamy z dołu (żeby stopy nie były na samym brzegu obrazka)
+        self.hitbox_margin_bottom = 2
         # GŁÓWNY UKŁAD
         main_layout = QVBoxLayout(self)
         
@@ -55,8 +64,7 @@ class GameView(QWidget):
         }
         # Pamiętaj, że teraz prędkość to piksele na sekundę!
         self.position={'x':self.start_pos,'y':self.start_pos}
-        self.speed = 100 
-        self.angle_speed=180
+        
     def keyPressEvent(self, event):
         # Powrót do menu pod klawiszem ESC
         if event.key() == Qt.Key.Key_Escape:
@@ -128,74 +136,84 @@ class GameView(QWidget):
             self.player_visual.setPos(self.position['x'],self.position['y'])
             # Rotacja
             self.player_visual.rotation()
+            self.update_camera()
             # 3. Testowy wydruk pozycji
             print(f"Pozycja: x:{self.position['x']}, y:{self.position['y']},Kat:{self.player_visual.rotation()}")
-    def move_math_player(self, delta_time,rotation=True):
-        
-        on_tile_pos_x=0
-        
-        # Obliczamy, o ile pikseli chcemy się przesunąć w tej klatce (v * delta_time)
+    def move_math_player(self, delta_time, rotation=True):
+        # 1. Wyliczenie podstawowego kroku
         step = self.speed * delta_time
-        dir_x=0
-        dir_y=0
-        kat=self.player_visual.rotation()
-        # Oś Pozioma (X) - Niezależne IFy!
-        if self.keys_pressed[Qt.Key.Key_Left]:
-            #self.position['x'] -= step
-            dir_x-=1
-        if self.keys_pressed[Qt.Key.Key_Right]:
-            #self.position['x'] += step
-            dir_x+=1
-        # Oś Pionowa (Y) - Niezależne IFy!
-        if self.keys_pressed[Qt.Key.Key_Up]:
-            #self.position['y'] -= step
-            dir_y-=1
-        if self.keys_pressed[Qt.Key.Key_Down]:
-            #self.position['y'] += step
-            dir_y+=1
+        dir_x = 0
+        dir_y = 0
+        kat = self.player_visual.rotation()
+        
+        # 2. Odczyt klawiszy (Kierunki)
+        if self.keys_pressed[Qt.Key.Key_Left]:  dir_x -= 1
+        if self.keys_pressed[Qt.Key.Key_Right]: dir_x += 1
+        if self.keys_pressed[Qt.Key.Key_Up]:    dir_y -= 1
+        if self.keys_pressed[Qt.Key.Key_Down]:  dir_y += 1
+
         # ---- KOLIZJE OŚ X ----   
         if dir_x != 0:
-            # 1. Gdzie postać CHCE iść w osi X?
+            # Gdzie postać chce iść (z uwzględnieniem normalizacji skosów)
             future_x = self.position['x'] + dir_x * step * (0.7071 if dir_y != 0 else 1.0)
             
-            # 2. Przelicz przyszłą pozycję X i obecną pozycję Y na indeksy kafelków
-            target_col = int(future_x // self.tilesize)
-            current_row = int(self.position['y'] // self.tilesize)
+            # Aplikujemy marginesy X (Krawędź Wiodąca Hitboxa)
+            if dir_x == 1: 
+                # Idziemy w prawo -> Prawy bok hitboxa
+                check_x = future_x + self.sprite_size - self.hitbox_margin_x - 1
+            else:          
+                # Idziemy w lewo -> Lewy bok hitboxa
+                check_x = future_x + self.hitbox_margin_x
+                
+            # W osi X sprawdzamy kolizję na wysokości stóp postaci!
+            check_y = self.position['y'] + self.sprite_size - self.hitbox_margin_bottom - 5
             
-            # 3. Sprawdź, czy nie wychodzimy poza ramy tablicy 64x64!
+            # Tłumaczenie na indeksy kafelków
+            target_col = int(check_x // self.tilesize)
+            current_row = int(check_y // self.tilesize)
+            
+            # Weryfikacja ze ścianami na mapie
             if 0 <= target_col < self.map_size and 0 <= current_row < self.map_size:
-                # 4. Sprawdź, czy na tym kafelku jest podłoga (0)
-                if self.level_data[current_row][target_col] == 0:
-                    # Sukces! Nie ma ściany, możemy przypisać nową pozycję
+                if self.testowaplansza[current_row][target_col] == 0:
                     self.position['x'] = future_x
+
         # ---- KOLIZJE OŚ Y ----
-        if dir_y !=0:
-            future_y = self.position['x']+dir_y*step*(0.7071 if dir_x != 0 else 1.0)
-            # 2. Przelicz przyszłą pozycję X i obecną pozycję Y na indeksy kafelków
-            current_col = int(self.position['x'] // self.tilesize)
-            target_row = int(future_y // self.tilesize)
-            if 0 <= target_col < self.map_size and 0 <= current_row < self.map_size:
-                # 4. Sprawdź, czy na tym kafelku jest podłoga (0)
-                if self.level_data[current_row][target_col] == 0:
-                # Sukces! Nie ma ściany, możemy przypisać nową pozycję
-                    self.position['y'] = future_y
-        # if dir_x != 0 and dir_y != 0:
-        #     self.position['x']+=dir_x*(step)*0.7071
-        #     self.position['y']+=dir_y*(step)*0.7071
-        # else:
-        #     self.position['x']+=dir_x*(step)
-        #     self.position['y']+=dir_y*(step)
-        if rotation==True:
-            # Rotacja (A - w lewo, D - w prawo)
-            angle_step = self.angle_speed * delta_time
+        if dir_y != 0:
+            # UWAGA NA POPRAWKĘ: Dodajemy do self.position['y']!
+            future_y = self.position['y'] + dir_y * step * (0.7071 if dir_x != 0 else 1.0)
             
+            # Aplikujemy marginesy Y (Krawędź Wiodąca Hitboxa)
+            if dir_y == 1: 
+                # Idziemy w dół -> Sprawdzamy stopy (Dół hitboxa)
+                check_y = future_y + self.sprite_size - self.hitbox_margin_bottom - 1
+            else: 
+                # Idziemy w górę -> Sprawdzamy czubek hitboxa (np. brzuch/klatkę, ucinając głowę)
+                check_y = future_y + self.hitbox_margin_top
+            
+            # W osi Y sprawdzamy kolizję dokładnie na środku szerokości postaci
+            check_x = self.position['x'] + (self.sprite_size / 2)
+            
+            # Tłumaczenie na indeksy kafelków (pamiętaj o odpowiedniej kolejności!)
+            target_row = int(check_y // self.tilesize)
+            current_col = int(check_x // self.tilesize)
+            
+            # Weryfikacja ze ścianami na mapie
+            if 0 <= current_col < self.map_size and 0 <= target_row < self.map_size:
+                # W tablicy NumPy najpierw podajemy Wiersz (Y), potem Kolumnę (X)!
+                if self.testowaplansza[target_row][current_col] == 0:
+                    self.position['y'] = future_y
+           
+        # ---- ROTACJA (OPCJONALNA) ----
+        if rotation:
+            angle_step = self.angle_speed * delta_time
             if self.keys_pressed[Qt.Key.Key_A]:
                 self.player_visual.setRotation(kat - angle_step)
             if self.keys_pressed[Qt.Key.Key_D]:
-                self.player_visual.setRotation(kat + angle_step)   
+                self.player_visual.setRotation(kat + angle_step)
+        
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self.scene.setSceneRect(0, 0, self.canvas.width(), self.canvas.height())
+        #self.scene.setSceneRect(0, 0, self.canvas.width(), self.canvas.height())
     def square(self):
         """funcja do generowania kwadracika/postaci testowej """
     # 2. Tworzymy prostokąt (lokalne wymiary: szerokość 32, wysokość 32)
@@ -216,10 +234,10 @@ class GameView(QWidget):
 
         # Opcjonalnie: Jeśli obrazek jest za duży/za mały, możemy go przeskalować.
         # Używamy FastTransformation, aby utrzymać ostre krawędzie w Pixel Arcie (zapobiega rozmyciu).
-        player_image = player_image.scaled(64, 64, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation)
+        player_image = player_image.scaled(self.sprite_size, self.sprite_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation)
         #2. Tworzymy nowy obiekt sceny oparty na obrazku
         self.player_visual = QGraphicsPixmapItem(player_image)
-
+        self.player_visual.setZValue(1)
         # 3. Ustawiamy środek obrotu i pozycję tak jak wcześniej
         w = self.player_visual.pixmap().width()
         h = self.player_visual.pixmap().height()
@@ -229,26 +247,69 @@ class GameView(QWidget):
         # 4. Dodajemy na scenę
         self.scene.addItem(self.player_visual)
     def gen_worldmap(self):
-        self.tilesize=32
-        #tesowa plansza
-        # self.testowaplansza=[
-        #     [1, 1, 1, 1, 1, 1, 1, 1],
-        #     [1, 0, 0, 0, 0, 0, 0, 1],
-        #     [1, 0, 1, 1, 0, 1, 0, 1],
-        #     [1, 0, 0, 0, 0, 0, 0, 1],
-        #     [1, 1, 1, 1, 1, 1, 1, 1]
-        # ]
-        self.testowaplansza=np.random.randint(0, 2, size=(self.map_size, self.map_size))
-        # Pętla po wierszach (y)
+        self.tilesize = 32
+        
+        # 1. Tworzymy pustą mapę wypełnioną zerami (podłoga / szary)
+        # Rozmiar mapy pobierany jest z self.map_size
+        self.testowaplansza = np.zeros((self.map_size, self.map_size), dtype=int)
+        world_width = self.map_size * self.tilesize
+        world_height = self.map_size * self.tilesize
+        
+        # Mówimy Qt, jak gigantyczny jest nasz świat!
+        self.scene.setSceneRect(0, 0, world_width, world_height)
+        # 2. Budujemy zewnętrzne ściany (ramka wokół mapy)
+        self.testowaplansza[0, :] = 1   # Górna ściana
+        self.testowaplansza[-1, :] = 1  # Dolna ściana
+        self.testowaplansza[:, 0] = 1   # Lewa ściana
+        self.testowaplansza[:, -1] = 1  # Prawa ściana
+        
+        # 3. Dodajemy wewnętrzne przeszkody (kolumny do testowania kolizji)
+        # Stawiamy klocek w co czwartym kafelku, omijając brzegi
+        for r in range(3, self.map_size - 3, 4):
+            for c in range(3, self.map_size - 3, 4):
+                self.testowaplansza[r, c] = 1
+
+        # 4. Pętla rysująca kafle na scenie Qt
         for row_idx, row_data in enumerate(self.testowaplansza):
-            # Pętla po kolumnach w danym wierszu (x)
             for col_idx, tile_value in enumerate(row_data):
-                x_pos=col_idx*self.tilesize
-                y_pos=row_idx*self.tilesize
-                kafelek=QGraphicsRectItem(0,0,self.tilesize,self.tilesize)
-                if tile_value==1:
+                x_pos = col_idx * self.tilesize
+                y_pos = row_idx * self.tilesize
+                
+                # Tworzymy kafel od (0,0) do (tilesize, tilesize)
+                kafelek = QGraphicsRectItem(0, 0, self.tilesize, self.tilesize)
+                kafelek.setZValue(0)
+                if tile_value == 1:
+                    # Ściana / Przeszkoda (zielona)
                     kafelek.setBrush(QBrush(QColor("green")))
+                    # Opcjonalnie dodaj ramkę, żeby ściany nie zlewały się w jedną masę
+                    kafelek.setPen(QPen(QColor("darkgreen"), 1))
                 else:
+                    # Wolna ścieżka (szara)
                     kafelek.setBrush(QBrush(QColor("grey")))
-                kafelek.setPos(x_pos,y_pos)
+                    kafelek.setPen(QPen(QColor("darkgray"), 1))
+                    
+                kafelek.setPos(x_pos, y_pos)
                 self.scene.addItem(kafelek)
+    def update_camera(self):
+        # 1. Pobierz wymiary widoku (okna)
+        view_w = self.canvas.width()
+        view_h = self.canvas.height()
+        
+        half_w = view_w / 2.0
+        half_h = view_h / 2.0
+        
+        # 2. Całkowite wymiary świata w pikselach
+        world_w = self.map_size * self.tilesize
+        world_h = self.map_size * self.tilesize
+        
+        # 3. Pozycja gracza (środek jego sprite'a)
+        player_center_x = self.position['x'] + (self.sprite_size / 2.0)
+        player_center_y = self.position['y'] + (self.sprite_size / 2.0)
+        
+        # 4. Obliczamy Cam_X z ograniczeniem (clamping)
+        # Przykład w czystym Pythonie: max(half_w, min(player_center_x, world_w - half_w))
+        cam_x = max(half_w, min(player_center_x, world_w - half_w))
+        cam_y = max(half_h, min(player_center_y, world_h - half_h))
+        
+        # 5. Ustawiamy kamerę na wyliczony punkt
+        self.canvas.centerOn(cam_x, cam_y)
