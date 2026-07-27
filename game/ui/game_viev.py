@@ -1,3 +1,4 @@
+import math
 import sys
 import numpy as np
 from PySide6.QtCore import Qt, Signal, QTimer, QElapsedTimer
@@ -20,9 +21,9 @@ class GameView(QWidget):
         self.sprite_size = 64
         self.speed = 200 
         self.angle_speed = 180
-
+        self.range_view=16
         # Marginesy Hitboxa
-        self.hitbox_margin_x = 18 
+        self.hitbox_margin_x = 18
         self.hitbox_margin_top = 40 
         self.hitbox_margin_bottom = 2
 
@@ -263,72 +264,107 @@ class GameView(QWidget):
 
             kierunek = "".join(dir_text) if dir_text else "STOI"
             self.dir_label.setText(f"Kierunek: {kierunek}")
-            
+            # --- TRZYSTANOWA MGŁA WOJNY (ZOPTYMALIZOWANA) ---
+
+            # 1. WYGASZANIE: Cofamy kafelki z poprzedniej klatki do stanu "Półmroku"
+            for r, c in self.visible_tiles:
+                if self.fog_map[r][c] == 0:  # Upewniamy się, że były widoczne
+                    self.fog_map[r][c] = 1  # Zmieniamy stan na Pamięć (1)
+                    mgla = self.fog_items[(r, c)]
+
+                    # Jeśli używałeś wcześniej .hide(), upewnij się że mgła znowu jest włączona!
+                    mgla.show()
+
+                    # Ustawiamy półmrok (np. 70% czerni)
+                    mgla.setOpacity(0.7)
+
+            # 2. Czyszczenie zbioru na nową klatkę
+            self.visible_tiles.clear()
+
+            # 3. OŚWIETLANIE: Wyliczamy nowe koło widzenia
+            zasieg = int(self.range_view)
+
+            for wiersz in range(tile_y - zasieg, tile_y + zasieg + 1):
+                for kolumna in range(tile_x - zasieg, tile_x + zasieg + 1):
+                    # Sprawdzamy granice mapy
+                    if 0 <= wiersz < self.map_size and 0 <= kolumna < self.map_size:
+                        # Liczymy dystans Pitagorasem
+                        dystans = math.hypot(wiersz - tile_y, kolumna - tile_x)
+
+                        if dystans <= self.range_view:
+                            # Gracz to widzi: Stan = 0
+                            self.fog_map[wiersz][kolumna] = 0
+                            mgla = self.fog_items[(wiersz, kolumna)]
+
+                            # Całkowicie rozpraszamy mgłę nad tym kafelkiem
+                            mgla.setOpacity(0.0)
+
+                            # Zapisujemy do zbioru, aby wygasić to w następnej klatce!
+                            self.visible_tiles.add((wiersz, kolumna))
+
             print(f"Pozycja: x:{self.position['x']}, y:{self.position['y']},Kat:{self.player_visual.rotation()}")
+
     def move_math_player(self, delta_time, rotation=True):
         # 1. Wyliczenie podstawowego kroku
         step = self.speed * delta_time
         dir_x = 0
         dir_y = 0
         kat = self.player_visual.rotation()
-        
+
         # 2. Odczyt klawiszy (Kierunki)
         if self.keys_pressed[Qt.Key.Key_Left]:  dir_x -= 1
         if self.keys_pressed[Qt.Key.Key_Right]: dir_x += 1
         if self.keys_pressed[Qt.Key.Key_Up]:    dir_y -= 1
         if self.keys_pressed[Qt.Key.Key_Down]:  dir_y += 1
 
-        # ---- KOLIZJE OŚ X ----   
+        # ---- KOLIZJE OŚ X ----
         if dir_x != 0:
-            # Gdzie postać chce iść (z uwzględnieniem normalizacji skosów)
             future_x = self.position['x'] + dir_x * step * (0.7071 if dir_y != 0 else 1.0)
-            
-            # Aplikujemy marginesy X (Krawędź Wiodąca Hitboxa)
-            if dir_x == 1: 
-                # Idziemy w prawo -> Prawy bok hitboxa
+
+            # W osi X wyznaczamy pionowe granice naszego Hitboxa (Obecne Y)
+            hitbox_top = self.position['y'] + self.hitbox_margin_top
+            hitbox_bottom = self.position['y'] + self.sprite_size - self.hitbox_margin_bottom - 1
+
+            # Aplikujemy marginesy X (Krawędź Wiodąca)
+            if dir_x == 1:
                 check_x = future_x + self.sprite_size - self.hitbox_margin_x - 1
-            else:          
-                # Idziemy w lewo -> Lewy bok hitboxa
+            else:
                 check_x = future_x + self.hitbox_margin_x
-                
-            # W osi X sprawdzamy kolizję na wysokości stóp postaci!
-            check_y = self.position['y'] + self.sprite_size - self.hitbox_margin_bottom - 5
-            
-            # Tłumaczenie na indeksy kafelków
+
+            # Tłumaczenie na indeksy kafelków (Sprawdzamy GÓRĘ i DÓŁ krawędzi)
             target_col = int(check_x // self.tilesize)
-            current_row = int(check_y // self.tilesize)
-            
-            # Weryfikacja ze ścianami na mapie
-            if 0 <= target_col < self.map_size and 0 <= current_row < self.map_size:
-                if self.testowaplansza[current_row][target_col] == 0:
+            top_row = int(hitbox_top // self.tilesize)
+            bottom_row = int(hitbox_bottom // self.tilesize)
+
+            # Jeśli oba sprawdzane rogi są na bezpiecznej podłodze (0) -> Ruch jest dozwolony
+            if 0 <= target_col < self.map_size and 0 <= top_row < self.map_size and 0 <= bottom_row < self.map_size:
+                if self.testowaplansza[top_row][target_col] == 0 and self.testowaplansza[bottom_row][target_col] == 0:
                     self.position['x'] = future_x
 
         # ---- KOLIZJE OŚ Y ----
         if dir_y != 0:
-            # UWAGA NA POPRAWKĘ: Dodajemy do self.position['y']!
             future_y = self.position['y'] + dir_y * step * (0.7071 if dir_x != 0 else 1.0)
-            
-            # Aplikujemy marginesy Y (Krawędź Wiodąca Hitboxa)
-            if dir_y == 1: 
-                # Idziemy w dół -> Sprawdzamy stopy (Dół hitboxa)
+
+            # W osi Y wyznaczamy poziome granice naszego Hitboxa (Obecne X)
+            hitbox_left = self.position['x'] + self.hitbox_margin_x
+            hitbox_right = self.position['x'] + self.sprite_size - self.hitbox_margin_x - 1
+
+            # Aplikujemy marginesy Y (Krawędź Wiodąca)
+            if dir_y == 1:
                 check_y = future_y + self.sprite_size - self.hitbox_margin_bottom - 1
-            else: 
-                # Idziemy w górę -> Sprawdzamy czubek hitboxa (np. brzuch/klatkę, ucinając głowę)
+            else:
                 check_y = future_y + self.hitbox_margin_top
-            
-            # W osi Y sprawdzamy kolizję dokładnie na środku szerokości postaci
-            check_x = self.position['x'] + (self.sprite_size / 2)
-            
-            # Tłumaczenie na indeksy kafelków (pamiętaj o odpowiedniej kolejności!)
+
+            # Tłumaczenie na indeksy kafelków (Sprawdzamy LEWY i PRAWY róg krawędzi)
             target_row = int(check_y // self.tilesize)
-            current_col = int(check_x // self.tilesize)
-            
-            # Weryfikacja ze ścianami na mapie
-            if 0 <= current_col < self.map_size and 0 <= target_row < self.map_size:
-                # W tablicy NumPy najpierw podajemy Wiersz (Y), potem Kolumnę (X)!
-                if self.testowaplansza[target_row][current_col] == 0:
+            left_col = int(hitbox_left // self.tilesize)
+            right_col = int(hitbox_right // self.tilesize)
+
+            # Jeśli oba sprawdzane rogi są na bezpiecznej podłodze (0) -> Ruch jest dozwolony
+            if 0 <= target_row < self.map_size and 0 <= left_col < self.map_size and 0 <= right_col < self.map_size:
+                if self.testowaplansza[target_row][left_col] == 0 and self.testowaplansza[target_row][right_col] == 0:
                     self.position['y'] = future_y
-           
+
         # ---- ROTACJA (OPCJONALNA) ----
         if rotation:
             angle_step = self.angle_speed * delta_time
@@ -378,6 +414,9 @@ class GameView(QWidget):
         # 1. Tworzymy pustą mapę wypełnioną zerami (podłoga / szary)
         # Rozmiar mapy pobierany jest z self.map_size
         self.testowaplansza = np.zeros((self.map_size, self.map_size), dtype=int)
+        self.fog_map = np.full((self.map_size, self.map_size), 2, dtype=int)
+        self.fog_items = {}
+        self.visible_tiles = set()
         world_width = self.map_size * self.tilesize
         world_height = self.map_size * self.tilesize
         
@@ -413,9 +452,14 @@ class GameView(QWidget):
                     # Wolna ścieżka (szara)
                     kafelek.setBrush(QBrush(QColor("grey")))
                     kafelek.setPen(QPen(QColor("darkgray"), 1))
-                    
+                kafelek_mgly= QGraphicsRectItem(0, 0, self.tilesize, self.tilesize)
+                kafelek_mgly.setBrush(QBrush(QColor("black")))
+                kafelek_mgly.setZValue(2)
                 kafelek.setPos(x_pos, y_pos)
+                kafelek_mgly.setPos(x_pos, y_pos)
                 self.scene.addItem(kafelek)
+                self.scene.addItem(kafelek_mgly)
+                self.fog_items[(row_idx, col_idx)] = kafelek_mgly
     def update_camera(self):
         # 1. Pobierz wymiary widoku (okna)
         view_w = self.canvas.width()
