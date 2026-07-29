@@ -16,12 +16,12 @@ class GameView(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         # --- ZMIENNE KONFIGURACYJNE GRY ---
-        self.map_size = 64
+        self.map_size = 128
         self.start_pos = 500
         self.sprite_size = 64
-        self.speed = 200 
+        self.speed = 400 
         self.angle_speed = 180
-        self.range_view=16
+        self.range_view=8
         # Marginesy Hitboxa
         self.hitbox_margin_x = 18
         self.hitbox_margin_top = 40 
@@ -40,8 +40,8 @@ class GameView(QWidget):
         main_layout.addWidget(self.btn_exit)
 
         # --- OBSZAR ROZGRYWKI (PODZIAŁ POZIOMY: CANVA + DASHBOARD) ---
-        gameplay_area = QWidget()
-        gameplay_layout = QHBoxLayout(gameplay_area)
+        self.gameplay_area = QWidget()
+        gameplay_layout = QHBoxLayout(self.gameplay_area)
         gameplay_layout.setContentsMargins(0, 0, 0, 0) 
 
         # 1. LEWA STRONA (Widok Gry)
@@ -113,18 +113,19 @@ class GameView(QWidget):
         dashboard_layout.addWidget(minimap_box, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # 2B. ETYKIETY STATYSTYK I KOORDYNATÓW
-        dashboard_layout.addSpacing(15)
+        dashboard_layout.addSpacing(10)
         
         self.zoom_label = QLabel("Zoom: 0.1x")
         self.dir_label = QLabel("Kierunek: STOI")
         self.dir_label.setStyleSheet("color: #f1c40f; font-weight: bold; font-size: 14px;")
 
-        self.tile_x_label = QLabel("Tile X: 0")
-        self.tile_y_label = QLabel("Tile Y: 0")
-        self.px_x_label = QLabel("Px X: 0")
-        self.px_y_label = QLabel("Px Y: 0")
-
-        for lbl in (self.zoom_label, self.dir_label, self.tile_x_label, self.tile_y_label, self.px_x_label, self.px_y_label):
+        # self.tile_x_label = QLabel("Tile X: 0")
+        # self.tile_y_label = QLabel("Tile Y: 0")
+        # self.px_x_label = QLabel("Px X: 0")
+        # self.px_y_label = QLabel("Px Y: 0")
+        self.poz_tile_label = QLabel("Poz: x:0 y:0")
+        
+        for lbl in (self.zoom_label, self.dir_label, self.poz_tile_label):
             lbl.setStyleSheet("color: white; font-size: 13px;")
             dashboard_layout.addWidget(lbl, alignment=Qt.AlignmentFlag.AlignLeft)
 
@@ -133,7 +134,7 @@ class GameView(QWidget):
         # Połączenie obszaru gry z panelem bocznym
         gameplay_layout.addWidget(self.canvas, stretch=4)
         gameplay_layout.addWidget(self.dashboard_panel, stretch=1)
-        main_layout.addWidget(gameplay_area)
+        main_layout.addWidget(self.gameplay_area)
 
         # --- TIMERY I ZMIENNE STANU GRY ---
         self.game_timer = QTimer()
@@ -153,6 +154,36 @@ class GameView(QWidget):
         }
 
         self.position = {'x': self.start_pos, 'y': self.start_pos}
+        # Pełna Mapa Kamera
+        # --- EKRAN PEŁNEJ MAPY (Złożony w jeden QWidget) ---
+        # 1. Tworzymy nasze "pudełko" na ekran mapy (pamiętaj o dodaniu self.!)
+        self.map_screen = QWidget()
+        
+        # 2. Wkładamy do pudełka pionowe przegródki (Layout pionowy)
+        map_layout = QVBoxLayout(self.map_screen)
+        
+        # 3. Tworzymy tekst koordynatów i wrzucamy do pierwszej górnej przegródki
+        self.poz_tile_label_fullmap = QLabel("Poz: x:0 y:0")
+        self.poz_tile_label_fullmap.setStyleSheet("color: white; font-size: 18px; font-weight: bold;")
+        self.poz_tile_label_fullmap.setAlignment(Qt.AlignmentFlag.AlignCenter) # Wyśrodkowanie
+        map_layout.addWidget(self.poz_tile_label_fullmap)
+        
+        # 4. Tworzymy kamerę mapy i wrzucamy do drugiej przegródki (pod tekstem)
+        self.full_map_view = QGraphicsView(self.scene)
+        self.full_map_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.full_map_view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.full_map_view.setStyleSheet("background-color: black; border: 2px solid gray;")
+        # --- NOWE: Blokada kradzieży kliknięć i włączenie rączki do przesuwania ---
+        self.full_map_view.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.full_map_view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        map_layout.addWidget(self.full_map_view)
+        
+        # 5. Teraz CAŁE nasze zorganizowane pudełko wrzucamy do głównego okna gry
+        main_layout.addWidget(self.map_screen)
+        
+        # Domyślnie chowamy całe pudełko (a nie tylko samą mapę)
+        self.map_screen.hide()
+        self.is_map_open = False
         
         # Aplikujemy początkowy poziom zoomu
         self.update_minimap_zoom()
@@ -175,7 +206,11 @@ class GameView(QWidget):
                 self.current_zoom_idx -= 1
                 self.update_minimap_zoom()
             return
-            
+        
+        if event.key()==Qt.Key.Key_M:
+            self.toggle_full_map()
+            return
+        
         key = event.key()
         if key in self.keys_pressed:
             self.keys_pressed[key] = True
@@ -249,11 +284,10 @@ class GameView(QWidget):
             tile_x = int(self.position['x'] // self.tilesize)
             tile_y = int(self.position['y'] // self.tilesize)
 
-            # 2. Odświeżenie etykiet pozycji
-            self.tile_x_label.setText(f"Tile X: {tile_x}")
-            self.tile_y_label.setText(f"Tile Y: {tile_y}")
-            self.px_x_label.setText(f"Px X: {int(self.position['x'])}")
-            self.px_y_label.setText(f"Px Y: {int(self.position['y'])}")
+            pozycje_tekst = f"Poz: x:{tile_x} y:{tile_y}"
+            
+            self.poz_tile_label.setText(pozycje_tekst)          # Panel boczny
+            self.poz_tile_label_fullmap.setText(pozycje_tekst)
 
             # 3. Wyznaczenie nazwy kierunku na podstawie wciśniętych klawiszy
             dir_text = []
@@ -284,12 +318,12 @@ class GameView(QWidget):
             # 3. OŚWIETLANIE: Wyliczamy nowe koło widzenia
             zasieg = int(self.range_view)
 
-            for wiersz in range(tile_y - zasieg, tile_y + zasieg + 1):
-                for kolumna in range(tile_x - zasieg, tile_x + zasieg + 1):
+            for wiersz in range(tile_y - zasieg, tile_y + zasieg + 2):
+                for kolumna in range(tile_x - zasieg, tile_x + zasieg + 2):
                     # Sprawdzamy granice mapy
                     if 0 <= wiersz < self.map_size and 0 <= kolumna < self.map_size:
                         # Liczymy dystans Pitagorasem
-                        dystans = math.hypot(wiersz - tile_y, kolumna - tile_x)
+                        dystans = math.hypot(wiersz - tile_y-1, kolumna - tile_x-1)
 
                         if dystans <= self.range_view:
                             # Gracz to widzi: Stan = 0
@@ -495,3 +529,17 @@ class GameView(QWidget):
         
         # Aktualizujemy tekst
         self.zoom_label.setText(f"Zoom: {zoom_factor}x")
+    def toggle_full_map(self):
+        if self.is_map_open == False:
+            self.gameplay_area.hide()
+            self.map_screen.show()
+            self.is_map_open = True
+            
+            # Resetujemy skalę, oddalamy widok i centrujemy na graczu
+            self.full_map_view.resetTransform()
+            self.full_map_view.scale(0.25, 0.25) 
+            self.full_map_view.centerOn(self.player_visual)
+        else:
+            self.map_screen.hide()
+            self.gameplay_area.show()
+            self.is_map_open = False
