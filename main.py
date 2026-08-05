@@ -3,7 +3,7 @@ import sys
 from pathlib import Path  # Dodane do obsługi ścieżek plików
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QIcon  # Dodane do obsługi ikony aplikacji
+from PySide6.QtGui import QIcon,QFontDatabase  # Dodane do obsługi ikony aplikacji
 from PySide6.QtWidgets import QApplication, QMainWindow, QPushButton, QStackedWidget
 
 from game.ui.game_viev import GameView
@@ -25,12 +25,39 @@ def load_stylesheet(file_path):
     except FileNotFoundError:
         print(f"File not found: {file_path}")
         return ""
-
+def load_fonts():
+    script_dir = Path(__file__).parent.resolve()
+    
+    # Lista plików czcionek do załadowania
+    pliki_czcionek = {
+        "atomic": "game/assets/fonts/AtomicAge-Regular.ttf",
+        "roboto": "game/assets/fonts/Roboto-Regular.ttf",
+        "pacifico": "game/assets/fonts/Pacifico-Regular.ttf"
+    }
+    
+    slownik_czcionek = {}
+    
+    # Automatyczne ładowanie wszystkich czcionek w pętli
+    for klucz, nazwa_pliku in pliki_czcionek.items():
+        sciezka = script_dir / nazwa_pliku
+        font_id = QFontDatabase.addApplicationFont(str(sciezka))
+        
+        if font_id == -1:
+            print(f"Nie udało się załadować pliku: {nazwa_pliku}. Używam Arial.")
+            slownik_czcionek[klucz] = "Arial"
+        else:
+            rodziny = QFontDatabase.applicationFontFamilies(font_id)
+            if rodziny:
+                slownik_czcionek[klucz] = rodziny[0]
+                print(f"Zarejestrowano [{klucz}] jako: {rodziny[0]}")
+            else:
+                slownik_czcionek[klucz] = "Arial"
+    return slownik_czcionek
 
 # Subclass QMainWindow to customize your application's main window
 class MainWindow(QMainWindow):
 
-    def __init__(self):
+    def __init__(self,czcionki):
         super().__init__()
 
         self.setWindowTitle("Survival Quest")
@@ -80,6 +107,6 @@ if __name__ == "__main__":
     stylesheet = load_stylesheet("game/config/style.qss")
     app.setStyleSheet(stylesheet)
 
-    window = MainWindow()
+    window = MainWindow(load_fonts())
     window.show()
     app.exec()

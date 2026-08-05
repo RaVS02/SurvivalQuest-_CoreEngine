@@ -4,9 +4,12 @@ import numpy as np
 from PySide6.QtCore import Qt, Signal, QTimer, QElapsedTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton, 
-    QLabel, QGraphicsView, QGraphicsScene, QGraphicsRectItem, QGraphicsPixmapItem,QFrame
+    QLabel, QGraphicsView, QGraphicsScene, QGraphicsRectItem, QGraphicsPixmapItem, QFrame
 )
 from PySide6.QtGui import QBrush, QPen, QColor, QPixmap
+
+from game.core.character import Player
+
 class GameView(QWidget):
     quit_requested = Signal()
 
@@ -14,18 +17,8 @@ class GameView(QWidget):
         super().__init__(parent)
         self.setWindowTitle("Game View - Core Engine")
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-
-        # --- ZMIENNE KONFIGURACYJNE GRY ---
-        self.map_size = 128
-        self.start_pos = 500
-        self.sprite_size = 64
-        self.speed = 400 
-        self.angle_speed = 180
-        self.range_view=8
-        # Marginesy Hitboxa
-        self.hitbox_margin_x = 18
-        self.hitbox_margin_top = 40 
-        self.hitbox_margin_bottom = 2
+        self.map_size = 64
+        self.start_pos = 0
 
         # --- ZMIENNE ZOOMU MINIMAPY ---
         self.zoom_levels = [0.1, 0.25, 0.5, 0.75, 1.0, 2.0]
@@ -47,8 +40,12 @@ class GameView(QWidget):
         # 1. LEWA STRONA (Widok Gry)
         self.scene = QGraphicsScene()
         self.gen_worldmap()
-        self.gen_sprites()
-
+        self.player = Player(
+            x=self.start_pos, 
+            y=self.start_pos, 
+            sprite_path="./game/assets/MrRzodkiewkaSprite.png"
+        )
+        self.scene.addItem(self.player.visual)
         self.canvas = QGraphicsView(self.scene)
         self.canvas.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.canvas.setStyleSheet("background-color: lightgray; border: 2px solid black;")
@@ -103,10 +100,7 @@ class GameView(QWidget):
         # Układanie elementów w siatce (wiersz, kolumna)
         compass_grid.addWidget(lbl_n, 0, 1)          # Góra: Północ
         compass_grid.addWidget(lbl_w, 1, 0)          # Lewo: Zachód
-        
-        # TUTAJ BYŁ BŁĄD! Dodajemy minimap_frame, a nie minimap!
-        compass_grid.addWidget(self.minimap_frame, 1, 1) 
-        
+        compass_grid.addWidget(self.minimap_frame, 1, 1) # Środek: Minimapa
         compass_grid.addWidget(lbl_e, 1, 2)          # Prawo: Wschód
         compass_grid.addWidget(lbl_s, 2, 1)          # Dół: Południe
 
@@ -119,10 +113,6 @@ class GameView(QWidget):
         self.dir_label = QLabel("Kierunek: STOI")
         self.dir_label.setStyleSheet("color: #f1c40f; font-weight: bold; font-size: 14px;")
 
-        # self.tile_x_label = QLabel("Tile X: 0")
-        # self.tile_y_label = QLabel("Tile Y: 0")
-        # self.px_x_label = QLabel("Px X: 0")
-        # self.px_y_label = QLabel("Px Y: 0")
         self.poz_tile_label = QLabel("Poz: x:0 y:0")
         
         for lbl in (self.zoom_label, self.dir_label, self.poz_tile_label):
@@ -144,48 +134,29 @@ class GameView(QWidget):
         self.elapsed_timer = QElapsedTimer()
         self.elapsed_timer.start()
 
-        self.keys_pressed = {
-            Qt.Key.Key_Left: False,
-            Qt.Key.Key_Right: False,
-            Qt.Key.Key_Up: False,
-            Qt.Key.Key_Down: False,
-            Qt.Key.Key_A: False,
-            Qt.Key.Key_D: False
-        }
-
-        self.position = {'x': self.start_pos, 'y': self.start_pos}
         # Pełna Mapa Kamera
         # --- EKRAN PEŁNEJ MAPY (Złożony w jeden QWidget) ---
-        # 1. Tworzymy nasze "pudełko" na ekran mapy (pamiętaj o dodaniu self.!)
         self.map_screen = QWidget()
-        
-        # 2. Wkładamy do pudełka pionowe przegródki (Layout pionowy)
         map_layout = QVBoxLayout(self.map_screen)
         
-        # 3. Tworzymy tekst koordynatów i wrzucamy do pierwszej górnej przegródki
         self.poz_tile_label_fullmap = QLabel("Poz: x:0 y:0")
         self.poz_tile_label_fullmap.setStyleSheet("color: white; font-size: 18px; font-weight: bold;")
-        self.poz_tile_label_fullmap.setAlignment(Qt.AlignmentFlag.AlignCenter) # Wyśrodkowanie
+        self.poz_tile_label_fullmap.setAlignment(Qt.AlignmentFlag.AlignCenter)
         map_layout.addWidget(self.poz_tile_label_fullmap)
         
-        # 4. Tworzymy kamerę mapy i wrzucamy do drugiej przegródki (pod tekstem)
         self.full_map_view = QGraphicsView(self.scene)
         self.full_map_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.full_map_view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.full_map_view.setStyleSheet("background-color: black; border: 2px solid gray;")
-        # --- NOWE: Blokada kradzieży kliknięć i włączenie rączki do przesuwania ---
         self.full_map_view.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.full_map_view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         map_layout.addWidget(self.full_map_view)
         
-        # 5. Teraz CAŁE nasze zorganizowane pudełko wrzucamy do głównego okna gry
         main_layout.addWidget(self.map_screen)
         
-        # Domyślnie chowamy całe pudełko (a nie tylko samą mapę)
         self.map_screen.hide()
         self.is_map_open = False
         
-        # Aplikujemy początkowy poziom zoomu
         self.update_minimap_zoom()
         
     def keyPressEvent(self, event):
@@ -207,246 +178,77 @@ class GameView(QWidget):
                 self.update_minimap_zoom()
             return
         
-        if event.key()==Qt.Key.Key_M:
+        if event.key() == Qt.Key.Key_M:
             self.toggle_full_map()
             return
-        
-        key = event.key()
-        if key in self.keys_pressed:
-            self.keys_pressed[key] = True
+            
+        self.player.set_key_state(event.key(), True)
 
     def keyReleaseEvent(self, event):
-        key = event.key()
-        if key in self.keys_pressed:
-            self.keys_pressed[key] = False
+        self.player.set_key_state(event.key(), False)
 
-    def process_movement(self):
-        # 1. Pobierz czas (delta_time w sekundach)
+    def process_movement_player(self):
         delta_time = self.elapsed_timer.elapsed() / 1000.0
         self.elapsed_timer.restart()
         
-        # 2. Oblicz ruch
-        self.move_math(delta_time)
-        self.rect_item.setPos(self.position['x'],self.position['y'])
-        # Rotacja
-        self.rect_item.rotation()
-        # 3. Testowy wydruk pozycji
-        print(f"Pozycja: x:{self.position['x']}, y:{self.position['y']},Kat:{self.rect_item.rotation()}")
-
-    def move_math(self, delta_time):
-        # Obliczamy, o ile pikseli chcemy się przesunąć w tej klatce (v * delta_time)
-        step = self.speed * delta_time
-        dir_x=0
-        dir_y=0
-        kat=self.rect_item.rotation()
-        # Oś Pozioma (X) - Niezależne IFy!
-        if self.keys_pressed[Qt.Key.Key_Left]:
-            #self.position['x'] -= step
-            dir_x-=1
-        if self.keys_pressed[Qt.Key.Key_Right]:
-            #self.position['x'] += step
-            dir_x+=1
-        # Oś Pionowa (Y) - Niezależne IFy!
-        if self.keys_pressed[Qt.Key.Key_Up]:
-            #self.position['y'] -= step
-            dir_y-=1
-        if self.keys_pressed[Qt.Key.Key_Down]:
-            #self.position['y'] += step
-            dir_y+=1
-        if dir_x != 0 and dir_y != 0:
-            self.position['x']+=dir_x*(step)*0.7071
-            self.position['y']+=dir_y*(step)*0.7071
-        else:
-            self.position['x']+=dir_x*(step)
-            self.position['y']+=dir_y*(step)
-        # Rotacja (A - w lewo, D - w prawo)
-        angle_step = self.angle_speed * delta_time
+        # 1. Przekazujemy logikę fizyki do klasy gracza
+        self.player.update(delta_time, self.testowaplansza, self.map_size, self.tilesize)
         
-        if self.keys_pressed[Qt.Key.Key_A]:
-            self.rect_item.setRotation(kat - angle_step)
-        if self.keys_pressed[Qt.Key.Key_D]:
-            self.rect_item.setRotation(kat + angle_step)
-    def process_movement_player(self):
-            # 1. Pobierz czas (delta_time w sekundach)
-            delta_time = self.elapsed_timer.elapsed() / 1000.0
-            self.elapsed_timer.restart()
-            
-            # 2. Oblicz ruch
-            self.move_math_player(delta_time,False)
-            self.player_visual.setPos(self.position['x'],self.position['y'])
-            # Rotacja
-            self.player_visual.rotation()
-            self.update_camera()
-            # 5. Przesuń kamerę MINIMAPY za graczem!
-            self.minimap.centerOn(self.player_visual)
-            # --- AKTUALIZACJA INTERFEJSU (HUD) ---
-            # 1. Przeliczanie pikseli na pozycję w kafelkach (Tile Coords)
-            tile_x = int(self.position['x'] // self.tilesize)
-            tile_y = int(self.position['y'] // self.tilesize)
+        # 2. Kamery śledzą grafikę gracza
+        self.update_camera()
+        self.minimap.centerOn(self.player.visual)
+        
+        # 3. Przeliczanie na kafelki i HUD
+        tile_x, tile_y = self.player.get_tile_pos(self.tilesize)
+        pozycje_tekst = f"Poz: x:{tile_x} y:{tile_y}"
+        
+        self.poz_tile_label.setText(pozycje_tekst)          
+        self.poz_tile_label_fullmap.setText(pozycje_tekst)
 
-            pozycje_tekst = f"Poz: x:{tile_x} y:{tile_y}"
-            
-            self.poz_tile_label.setText(pozycje_tekst)          # Panel boczny
-            self.poz_tile_label_fullmap.setText(pozycje_tekst)
+        # 4. Wyznaczenie nazwy kierunku na podstawie wciśniętych klawiszy
+        dir_text = []
+        if self.player.keys_pressed[Qt.Key.Key_Up]:    dir_text.append("N")
+        if self.player.keys_pressed[Qt.Key.Key_Down]:  dir_text.append("S")
+        if self.player.keys_pressed[Qt.Key.Key_Left]:  dir_text.append("W")
+        if self.player.keys_pressed[Qt.Key.Key_Right]: dir_text.append("E")
 
-            # 3. Wyznaczenie nazwy kierunku na podstawie wciśniętych klawiszy
-            dir_text = []
-            if self.keys_pressed[Qt.Key.Key_Up]:    dir_text.append("N")
-            if self.keys_pressed[Qt.Key.Key_Down]:  dir_text.append("S")
-            if self.keys_pressed[Qt.Key.Key_Left]:  dir_text.append("W")
-            if self.keys_pressed[Qt.Key.Key_Right]: dir_text.append("E")
+        kierunek = "".join(dir_text) if dir_text else "STOI"
+        self.dir_label.setText(f"Kierunek: {kierunek}")
 
-            kierunek = "".join(dir_text) if dir_text else "STOI"
-            self.dir_label.setText(f"Kierunek: {kierunek}")
-            # --- TRZYSTANOWA MGŁA WOJNY (ZOPTYMALIZOWANA) ---
+        # --- TRZYSTANOWA MGŁA WOJNY (ZOPTYMALIZOWANA) ---
+        # 1. WYGASZANIE: Cofamy kafelki z poprzedniej klatki do stanu "Półmroku"
+        for r, c in self.visible_tiles:
+            if self.fog_map[r][c] == 0:  # Upewniamy się, że były widoczne
+                self.fog_map[r][c] = 1  # Zmieniamy stan na Pamięć (1)
+                mgla = self.fog_items[(r, c)]
+                mgla.show()
+                mgla.setOpacity(0.7)
 
-            # 1. WYGASZANIE: Cofamy kafelki z poprzedniej klatki do stanu "Półmroku"
-            for r, c in self.visible_tiles:
-                if self.fog_map[r][c] == 0:  # Upewniamy się, że były widoczne
-                    self.fog_map[r][c] = 1  # Zmieniamy stan na Pamięć (1)
-                    mgla = self.fog_items[(r, c)]
+        # 2. Czyszczenie zbioru na nową klatkę
+        self.visible_tiles.clear()
 
-                    # Jeśli używałeś wcześniej .hide(), upewnij się że mgła znowu jest włączona!
-                    mgla.show()
+        # 3. OŚWIETLANIE: Wyliczamy nowe koło widzenia
+        zasieg = int(self.player.range_view)
 
-                    # Ustawiamy półmrok (np. 70% czerni)
-                    mgla.setOpacity(0.7)
+        for wiersz in range(tile_y - zasieg, tile_y + zasieg + 2):
+            for kolumna in range(tile_x - zasieg, tile_x + zasieg + 2):
+                if 0 <= wiersz < self.map_size and 0 <= kolumna < self.map_size:
+                    dystans = math.hypot(wiersz - tile_y - 1, kolumna - tile_x - 1)
 
-            # 2. Czyszczenie zbioru na nową klatkę
-            self.visible_tiles.clear()
+                    if dystans <= self.player.range_view:
+                        self.fog_map[wiersz][kolumna] = 0
+                        mgla = self.fog_items[(wiersz, kolumna)]
+                        mgla.setOpacity(0.0)
+                        self.visible_tiles.add((wiersz, kolumna))
 
-            # 3. OŚWIETLANIE: Wyliczamy nowe koło widzenia
-            zasieg = int(self.range_view)
-
-            for wiersz in range(tile_y - zasieg, tile_y + zasieg + 2):
-                for kolumna in range(tile_x - zasieg, tile_x + zasieg + 2):
-                    # Sprawdzamy granice mapy
-                    if 0 <= wiersz < self.map_size and 0 <= kolumna < self.map_size:
-                        # Liczymy dystans Pitagorasem
-                        dystans = math.hypot(wiersz - tile_y-1, kolumna - tile_x-1)
-
-                        if dystans <= self.range_view:
-                            # Gracz to widzi: Stan = 0
-                            self.fog_map[wiersz][kolumna] = 0
-                            mgla = self.fog_items[(wiersz, kolumna)]
-
-                            # Całkowicie rozpraszamy mgłę nad tym kafelkiem
-                            mgla.setOpacity(0.0)
-
-                            # Zapisujemy do zbioru, aby wygasić to w następnej klatce!
-                            self.visible_tiles.add((wiersz, kolumna))
-
-            print(f"Pozycja: x:{self.position['x']}, y:{self.position['y']},Kat:{self.player_visual.rotation()}")
-
-    def move_math_player(self, delta_time, rotation=True):
-        # 1. Wyliczenie podstawowego kroku
-        step = self.speed * delta_time
-        dir_x = 0
-        dir_y = 0
-        kat = self.player_visual.rotation()
-
-        # 2. Odczyt klawiszy (Kierunki)
-        if self.keys_pressed[Qt.Key.Key_Left]:  dir_x -= 1
-        if self.keys_pressed[Qt.Key.Key_Right]: dir_x += 1
-        if self.keys_pressed[Qt.Key.Key_Up]:    dir_y -= 1
-        if self.keys_pressed[Qt.Key.Key_Down]:  dir_y += 1
-
-        # ---- KOLIZJE OŚ X ----
-        if dir_x != 0:
-            future_x = self.position['x'] + dir_x * step * (0.7071 if dir_y != 0 else 1.0)
-
-            # W osi X wyznaczamy pionowe granice naszego Hitboxa (Obecne Y)
-            hitbox_top = self.position['y'] + self.hitbox_margin_top
-            hitbox_bottom = self.position['y'] + self.sprite_size - self.hitbox_margin_bottom - 1
-
-            # Aplikujemy marginesy X (Krawędź Wiodąca)
-            if dir_x == 1:
-                check_x = future_x + self.sprite_size - self.hitbox_margin_x - 1
-            else:
-                check_x = future_x + self.hitbox_margin_x
-
-            # Tłumaczenie na indeksy kafelków (Sprawdzamy GÓRĘ i DÓŁ krawędzi)
-            target_col = int(check_x // self.tilesize)
-            top_row = int(hitbox_top // self.tilesize)
-            bottom_row = int(hitbox_bottom // self.tilesize)
-
-            # Jeśli oba sprawdzane rogi są na bezpiecznej podłodze (0) -> Ruch jest dozwolony
-            if 0 <= target_col < self.map_size and 0 <= top_row < self.map_size and 0 <= bottom_row < self.map_size:
-                if self.testowaplansza[top_row][target_col] == 0 and self.testowaplansza[bottom_row][target_col] == 0:
-                    self.position['x'] = future_x
-
-        # ---- KOLIZJE OŚ Y ----
-        if dir_y != 0:
-            future_y = self.position['y'] + dir_y * step * (0.7071 if dir_x != 0 else 1.0)
-
-            # W osi Y wyznaczamy poziome granice naszego Hitboxa (Obecne X)
-            hitbox_left = self.position['x'] + self.hitbox_margin_x
-            hitbox_right = self.position['x'] + self.sprite_size - self.hitbox_margin_x - 1
-
-            # Aplikujemy marginesy Y (Krawędź Wiodąca)
-            if dir_y == 1:
-                check_y = future_y + self.sprite_size - self.hitbox_margin_bottom - 1
-            else:
-                check_y = future_y + self.hitbox_margin_top
-
-            # Tłumaczenie na indeksy kafelków (Sprawdzamy LEWY i PRAWY róg krawędzi)
-            target_row = int(check_y // self.tilesize)
-            left_col = int(hitbox_left // self.tilesize)
-            right_col = int(hitbox_right // self.tilesize)
-
-            # Jeśli oba sprawdzane rogi są na bezpiecznej podłodze (0) -> Ruch jest dozwolony
-            if 0 <= target_row < self.map_size and 0 <= left_col < self.map_size and 0 <= right_col < self.map_size:
-                if self.testowaplansza[target_row][left_col] == 0 and self.testowaplansza[target_row][right_col] == 0:
-                    self.position['y'] = future_y
-
-        # ---- ROTACJA (OPCJONALNA) ----
-        if rotation:
-            angle_step = self.angle_speed * delta_time
-            if self.keys_pressed[Qt.Key.Key_A]:
-                self.player_visual.setRotation(kat - angle_step)
-            if self.keys_pressed[Qt.Key.Key_D]:
-                self.player_visual.setRotation(kat + angle_step)
+        print(f"Pozycja: x:{self.player.x:.1f}, y:{self.player.y:.1f}, Kat:{self.player.visual.rotation():.1f}")
         
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        #self.scene.setSceneRect(0, 0, self.canvas.width(), self.canvas.height())
-    def square(self):
-        """funcja do generowania kwadracika/postaci testowej """
-    # 2. Tworzymy prostokąt (lokalne wymiary: szerokość 32, wysokość 32)
-        self.rect_item = QGraphicsRectItem(0, 0, 32, 32)
-        self.rect_item.setTransformOriginPoint(16, 16)
-        # 3. Stylizujemy prostokąt (czerwone wypełnienie, czarna ramka)
-        self.rect_item.setBrush(QBrush(QColor("red")))
-        self.rect_item.setPen(QPen(QColor("black"), 1))
-    
-        # 4. Ustalamy pozycję prostokąta na scenie (X=0, Y=0)
-        self.rect_item.setPos(self.start_pos, self.start_pos)
-        # 5. Dodajemy obiekt do sceny
-        self.scene.addItem(self.rect_item)    
-    def gen_sprites(self):
-        """ Tworzenie Gracza ze sprita"""
-        # 1. Ładujemy obrazek z dysku (pamiętaj o prawidłowej ścieżce!)
-        player_image = QPixmap("./game/assets/MrRzodkiewkaSprite.png")
 
-        # Opcjonalnie: Jeśli obrazek jest za duży/za mały, możemy go przeskalować.
-        # Używamy FastTransformation, aby utrzymać ostre krawędzie w Pixel Arcie (zapobiega rozmyciu).
-        player_image = player_image.scaled(self.sprite_size, self.sprite_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation)
-        #2. Tworzymy nowy obiekt sceny oparty na obrazku
-        self.player_visual = QGraphicsPixmapItem(player_image)
-        self.player_visual.setZValue(1)
-        # 3. Ustawiamy środek obrotu i pozycję tak jak wcześniej
-        w = self.player_visual.pixmap().width()
-        h = self.player_visual.pixmap().height()
-        self.player_visual.setTransformOriginPoint(w / 2, h / 2)
-        self.player_visual.setPos(self.start_pos, self.start_pos)
-
-        # 4. Dodajemy na scenę
-        self.scene.addItem(self.player_visual)
     def gen_worldmap(self):
         self.tilesize = 32
         
-        # 1. Tworzymy pustą mapę wypełnioną zerami (podłoga / szary)
-        # Rozmiar mapy pobierany jest z self.map_size
         self.testowaplansza = np.zeros((self.map_size, self.map_size), dtype=int)
         self.fog_map = np.full((self.map_size, self.map_size), 2, dtype=int)
         self.fog_items = {}
@@ -454,91 +256,88 @@ class GameView(QWidget):
         world_width = self.map_size * self.tilesize
         world_height = self.map_size * self.tilesize
         
-        # Mówimy Qt, jak gigantyczny jest nasz świat!
         self.scene.setSceneRect(0, 0, world_width, world_height)
-        # 2. Budujemy zewnętrzne ściany (ramka wokół mapy)
+        
         self.testowaplansza[0, :] = 1   # Górna ściana
         self.testowaplansza[-1, :] = 1  # Dolna ściana
         self.testowaplansza[:, 0] = 1   # Lewa ściana
         self.testowaplansza[:, -1] = 1  # Prawa ściana
         
-        # 3. Dodajemy wewnętrzne przeszkody (kolumny do testowania kolizji)
-        # Stawiamy klocek w co czwartym kafelku, omijając brzegi
         for r in range(3, self.map_size - 3, 4):
             for c in range(3, self.map_size - 3, 4):
                 self.testowaplansza[r, c] = 1
 
-        # 4. Pętla rysująca kafle na scenie Qt
+        # --- OPTYMALIZACJA TŁA ---
+        from PySide6.QtGui import QPainter
+        
+        background_pixmap = QPixmap(world_width, world_height)
+        background_pixmap.fill(QColor("grey"))
+        
+        painter = QPainter(background_pixmap)
+        painter.setBrush(QBrush(QColor("green")))
+        painter.setPen(QPen(QColor("darkgreen"), 1))
+        
+        for row_idx, row_data in enumerate(self.testowaplansza):
+            for col_idx, tile_value in enumerate(row_data):
+                if tile_value == 1:
+                    x_pos = col_idx * self.tilesize
+                    y_pos = row_idx * self.tilesize
+                    painter.drawRect(x_pos, y_pos, self.tilesize, self.tilesize)
+                    
+        painter.end() 
+        
+        self.world_visual = QGraphicsPixmapItem(background_pixmap)
+        self.world_visual.setZValue(0)
+        self.scene.addItem(self.world_visual)
+
+        # --- RYSOWANIE MGŁY ---
         for row_idx, row_data in enumerate(self.testowaplansza):
             for col_idx, tile_value in enumerate(row_data):
                 x_pos = col_idx * self.tilesize
                 y_pos = row_idx * self.tilesize
                 
-                # Tworzymy kafel od (0,0) do (tilesize, tilesize)
-                kafelek = QGraphicsRectItem(0, 0, self.tilesize, self.tilesize)
-                kafelek.setZValue(0)
-                if tile_value == 1:
-                    # Ściana / Przeszkoda (zielona)
-                    kafelek.setBrush(QBrush(QColor("green")))
-                    # Opcjonalnie dodaj ramkę, żeby ściany nie zlewały się w jedną masę
-                    kafelek.setPen(QPen(QColor("darkgreen"), 1))
-                else:
-                    # Wolna ścieżka (szara)
-                    kafelek.setBrush(QBrush(QColor("grey")))
-                    kafelek.setPen(QPen(QColor("darkgray"), 1))
-                kafelek_mgly= QGraphicsRectItem(0, 0, self.tilesize, self.tilesize)
+                kafelek_mgly = QGraphicsRectItem(0, 0, self.tilesize, self.tilesize)
                 kafelek_mgly.setBrush(QBrush(QColor("black")))
+                kafelek_mgly.setPen(Qt.PenStyle.NoPen)
                 kafelek_mgly.setZValue(2)
-                kafelek.setPos(x_pos, y_pos)
                 kafelek_mgly.setPos(x_pos, y_pos)
-                self.scene.addItem(kafelek)
+                
                 self.scene.addItem(kafelek_mgly)
                 self.fog_items[(row_idx, col_idx)] = kafelek_mgly
+
     def update_camera(self):
-        # 1. Pobierz wymiary widoku (okna)
         view_w = self.canvas.width()
         view_h = self.canvas.height()
         
         half_w = view_w / 2.0
         half_h = view_h / 2.0
         
-        # 2. Całkowite wymiary świata w pikselach
         world_w = self.map_size * self.tilesize
         world_h = self.map_size * self.tilesize
         
-        # 3. Pozycja gracza (środek jego sprite'a)
-        player_center_x = self.position['x'] + (self.sprite_size / 2.0)
-        player_center_y = self.position['y'] + (self.sprite_size / 2.0)
+        player_center_x = self.player.x + (self.player.sprite_size / 2.0)
+        player_center_y = self.player.y + (self.player.sprite_size / 2.0)
         
-        # 4. Obliczamy Cam_X z ograniczeniem (clamping)
-        # Przykład w czystym Pythonie: max(half_w, min(player_center_x, world_w - half_w))
         cam_x = max(half_w, min(player_center_x, world_w - half_w))
         cam_y = max(half_h, min(player_center_y, world_h - half_h))
         
-        # 5. Ustawiamy kamerę na wyliczony punkt
         self.canvas.centerOn(cam_x, cam_y)
+
     def update_minimap_zoom(self):
-        # Resetujemy skalę do bazowego 1.0
         self.minimap.resetTransform()
-        
-        # Pobieramy mnożnik z listy
         zoom_factor = self.zoom_levels[self.current_zoom_idx]
-        
-        # Aplikujemy nową skalę
         self.minimap.scale(zoom_factor, zoom_factor)
-        
-        # Aktualizujemy tekst
         self.zoom_label.setText(f"Zoom: {zoom_factor}x")
+
     def toggle_full_map(self):
         if self.is_map_open == False:
             self.gameplay_area.hide()
             self.map_screen.show()
             self.is_map_open = True
             
-            # Resetujemy skalę, oddalamy widok i centrujemy na graczu
             self.full_map_view.resetTransform()
             self.full_map_view.scale(0.25, 0.25) 
-            self.full_map_view.centerOn(self.player_visual)
+            self.full_map_view.centerOn(self.player.visual)
         else:
             self.map_screen.hide()
             self.gameplay_area.show()
